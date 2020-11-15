@@ -6,10 +6,8 @@ package iperfer;
 import org.apache.commons.cli.*;
 
 import java.io.*;
+import java.net.ServerSocket;
 import java.net.Socket;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Timer;
 
 
 public class Iperfer {
@@ -24,33 +22,46 @@ public class Iperfer {
             printHelpAndExit();
         }
         try {
-            Socket serverSocket = new Socket("127.0.0.1", port);
-            InputStream inputStream = serverSocket.getInputStream();
+            ServerSocket serverSocket = new ServerSocket(port);
+            Socket socket = serverSocket.accept();
+            DataInputStream inputStream = new DataInputStream(socket.getInputStream());
             byte[] bytes = new byte[1024];
-            int len;
-            StringBuilder sb = new StringBuilder();
-            Instant start = Instant.now();
-            while ((len = inputStream.read(bytes)) != -1) {
-                sb.append(new String(bytes, 0, len, "UTF-8"));
+            long len = 0, readBytes;
+            long startTime = System.currentTimeMillis();
+            while ((readBytes = inputStream.read(bytes)) != -1) {
+                len += readBytes;
             }
-            Instant end = Instant.now();
-            double timeTaken = Duration.between(start, end).toMillis() / 1000.0;
-            double rate = len / timeTaken;
-            System.out.println(String.format("received=%d KB rate=%f Mbps", len, rate));
-
+            double timeTaken = (System.currentTimeMillis() - startTime) / 1000.0;
+            double rate = len / 1000000.0 * 8 / timeTaken;
+            // System.out.printf("Time taken is %.3f s\n", timeTaken);
+            System.out.printf("received=%d KB rate=%.3f Mbps\n", len / 1000, rate);
+            serverSocket.close();
+            socket.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
     private static void runClient(String hostname, String portNum, String time) {
+        int port = Integer.parseInt(portNum);
+        if (port < 1024 || port > 65535) {
+            System.err.println("Error: port number must be in the range 1024 to 65535.");
+            printHelpAndExit();
+        }
         try {
-            Socket clientSocket = new Socket(hostname, Integer.parseInt(portNum));
+            Socket clientSocket = new Socket(hostname, port);
             int timeToSend = Integer.parseInt(time);
-            Timer timer = new Timer();
-
             OutputStream outToServer = clientSocket.getOutputStream();
-            DataOutputStream out = new DataOutputStream(outToServer);
+            long sendLen = 0;
+            byte[] bytes = new byte[1024];
+            long startTime = System.currentTimeMillis();
+            while ((System.currentTimeMillis() - startTime) <= 1000 * timeToSend) {
+                outToServer.write(bytes);
+                sendLen += bytes.length;
+            }
+            double rate = sendLen / 1000000.0 * 8 / timeToSend;
+            System.out.println(String.format("sent=%d KB rate=%.3f Mbps", sendLen / 1000, rate));
+            clientSocket.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -93,6 +104,7 @@ public class Iperfer {
         try {
             cmd = parser.parse(options, args);
         } catch (ParseException e) {
+            System.err.println("Argument parsing error");
             printHelpAndExit();
         }
 
@@ -116,7 +128,5 @@ public class Iperfer {
             if (portNum == null) printHelpAndExit();
             runServer(portNum);
         } else printHelpAndExit();
-
-        System.out.println(new Iperfer().getGreeting());
     }
 }
